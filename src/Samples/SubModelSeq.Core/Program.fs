@@ -1,6 +1,8 @@
 module Elmish.WPF.Samples.SubModelSeq.Program
 
 open System
+open System.Windows
+open System.Windows.Controls
 open Serilog
 open Serilog.Extensions.Logging
 open Elmish.WPF
@@ -172,6 +174,7 @@ module App =
     | Remove of Guid
     | MoveUp of Guid
     | MoveDown of Guid
+    | RightClick
 
   type SubtreeOutMsg =
     | OutRemove
@@ -181,7 +184,8 @@ module App =
   type Msg =
     | ToggleGlobalState
     | SubtreeMsg of RoseTreeMsg<Guid, SubtreeMsg>
-
+    | ContextSelectAll
+    | ContextClearAll
 
   let getSomeGlobalState m = m.SomeGlobalState
   let setSomeGlobalState v m = { m with SomeGlobalState = v }
@@ -198,6 +202,18 @@ module App =
   let createNewLeaf () =
     createNewIdentifiableCounter ()
     |> RoseTree.createLeaf
+
+  let mutable window: Window = null
+
+  let showContextMenu (node: RoseTree<Identifiable<Counter>>)(* : RoseTreeMsg<FieldId, SubtreeMsg>*) =
+      if not node.Children.IsEmpty then
+          let fld = node.Data
+          let cm = window.FindResource("contextMenu") :?> ContextMenu
+          //setMenuItem cm "contextSelectAll" $"Select all fields of {fld.Type} for GML"
+          //setMenuItem cm "contextClearAll" $"Clear all fields of {fld.Type} for GML"
+          //cm.Tag <- fld.Id
+          cm.IsOpen <- true
+      LeafMsg RightClick
 
   let init () =
     let dummyRootData = createNewIdentifiableCounter () // Placeholder data to satisfy type system. User never sees this.
@@ -222,10 +238,16 @@ module App =
     | Remove cId -> cId |> hasId >> not |> List.filter |> RoseTree.mapChildren
     | MoveUp cId -> cId |> swapCounters List.swapWithPrev |> RoseTree.mapChildren
     | MoveDown cId -> cId |> swapCounters List.swapWithNext |> RoseTree.mapChildren
+    | RightClick ->
+        id
 
   let update = function
     | ToggleGlobalState -> mapSomeGlobalState not
     | SubtreeMsg msg -> msg |> RoseTree.update hasId updateSubtree |> mapDummyRoot
+    | ContextSelectAll ->
+        mapSomeGlobalState not // TODO: Select all children of the right-clicked node
+    | ContextClearAll ->
+        mapSomeGlobalState not // TODO: Clear all children of the right-clicked node
 
   let mapOutMsg = function
     | OutRemove -> Remove
@@ -270,6 +292,7 @@ module Bindings =
             match inOutMsg with
             | InMsg msg -> (cId, msg) |> BranchMsg
             | OutMsg msg -> cId |> mapOutMsg msg |> LeafMsg)
+        "RightClick" |> Binding.cmd(fun (_, ({ Self = c })) -> showContextMenu c)
       ] @ counterBindings
       |> Bindings.mapMsg InMsg
 
@@ -295,12 +318,16 @@ module Bindings =
     "ToggleGlobalState" |> Binding.cmd ToggleGlobalState
 
     "AddCounter" |> Binding.cmd (AddChild |> LeafMsg |> SubtreeMsg)
+
+    "ContextSelectAll" |> Binding.cmd ContextSelectAll
+    "ContextClearAll" |> Binding.cmd ContextClearAll
   ]
 
 let counterDesignVm = ViewModel.designInstance Counter.init (Counter.bindings ())
 let mainDesignVm = ViewModel.designInstance (App.init ()) (Bindings.rootBindings ())
 
 let main window =
+  App.window <- window
   let logger =
     LoggerConfiguration()
       .MinimumLevel.Override("Elmish.WPF.Update", Events.LogEventLevel.Verbose)
