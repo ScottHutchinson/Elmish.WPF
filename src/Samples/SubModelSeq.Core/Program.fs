@@ -1,8 +1,6 @@
 module Elmish.WPF.Samples.SubModelSeq.Program
 
 open System
-open System.Windows
-open System.Windows.Controls
 open Serilog
 open Serilog.Extensions.Logging
 open Elmish.WPF
@@ -88,6 +86,24 @@ module Identifiable =
 
 
 [<AutoOpen>]
+module Openable =
+
+  type Openable<'a> =
+    { IsOpen: bool
+      Value: 'a }
+
+  module Openable =
+    module IsOpen =
+      let get m = m.IsOpen
+      let set v m = { m with IsOpen = v }
+      let map f = f |> map get set
+    module Value =
+      let get (m: Openable<_>) = m.Value
+      let set v (m: Openable<_>) = { m with Value = v }
+      let map f = f |> map get set
+
+
+[<AutoOpen>]
 module Counter =
 
   type Counter =
@@ -166,7 +182,7 @@ module App =
 
   type Model =
     { SomeGlobalState: bool
-      DummyRoot: RoseTree<Identifiable<Counter>> }
+      DummyRoot: RoseTree<Identifiable<Openable<Counter>>> }
 
   type SubtreeMsg =
     | CounterMsg of CounterMsg
@@ -174,7 +190,9 @@ module App =
     | Remove of Guid
     | MoveUp of Guid
     | MoveDown of Guid
-    | RightClick
+    | SelectChildren of Guid
+    | DeselectChildren of Guid
+    | SetContextMenuIsOpen of bool
 
   type SubtreeOutMsg =
     | OutRemove
@@ -184,8 +202,6 @@ module App =
   type Msg =
     | ToggleGlobalState
     | SubtreeMsg of RoseTreeMsg<Guid, SubtreeMsg>
-    | ContextSelectAll
-    | ContextClearAll
 
   let getSomeGlobalState m = m.SomeGlobalState
   let setSomeGlobalState v m = { m with SomeGlobalState = v }
@@ -195,28 +211,19 @@ module App =
   let setDummyRoot v m = { m with DummyRoot = v }
   let mapDummyRoot f = f |> map getDummyRoot setDummyRoot
 
-  let createNewIdentifiableCounter () =
+  let createNewIdentifiableOpenableCounter () =
+    let openable =
+      { IsOpen = false
+        Value = Counter.init }
     { Id = Guid.NewGuid ()
-      Value = Counter.init }
+      Value = openable }
 
   let createNewLeaf () =
-    createNewIdentifiableCounter ()
+    createNewIdentifiableOpenableCounter ()
     |> RoseTree.createLeaf
 
-  let mutable window: Window = null
-
-  let showContextMenu (node: RoseTree<Identifiable<Counter>>)(* : RoseTreeMsg<FieldId, SubtreeMsg>*) =
-      if not node.Children.IsEmpty then
-          let fld = node.Data
-          let cm = window.FindResource("contextMenu") :?> ContextMenu
-          //setMenuItem cm "contextSelectAll" $"Select all fields of {fld.Type} for GML"
-          //setMenuItem cm "contextClearAll" $"Clear all fields of {fld.Type} for GML"
-          //cm.Tag <- fld.Id
-          cm.IsOpen <- true
-      LeafMsg RightClick
-
   let init () =
-    let dummyRootData = createNewIdentifiableCounter () // Placeholder data to satisfy type system. User never sees this.
+    let dummyRootData = createNewIdentifiableOpenableCounter () // Placeholder data to satisfy type system. User never sees this.
     { SomeGlobalState = false
       DummyRoot =
         createNewLeaf ()
@@ -233,21 +240,22 @@ module App =
     |> FuncOption.inputIfNone
 
   let updateSubtree = function
-    | CounterMsg msg -> msg |> Counter.update |> Identifiable.map |> RoseTree.mapData
+    | CounterMsg msg -> msg |> Counter.update |> Openable.Value.map |> Identifiable.map |> RoseTree.mapData
     | AddChild -> createNewLeaf () |> List.cons |> RoseTree.mapChildren
     | Remove cId -> cId |> hasId >> not |> List.filter |> RoseTree.mapChildren
     | MoveUp cId -> cId |> swapCounters List.swapWithPrev |> RoseTree.mapChildren
     | MoveDown cId -> cId |> swapCounters List.swapWithNext |> RoseTree.mapChildren
-    | RightClick ->
-        id
+    | SelectChildren cId -> fun m -> m   // A breakpoint on m is hit when "Select All" is clicked in a context menu
+    | DeselectChildren cId -> fun m -> m // A breakpoint on m is hit when "Clear All" is clicked in a context menu
+    | SetContextMenuIsOpen b -> fun m ->
+        if not b || not m.Children.IsEmpty then
+          b |> Openable.IsOpen.set |> Identifiable.map |> RoseTree.mapData <| m
+        else
+          m
 
   let update = function
     | ToggleGlobalState -> mapSomeGlobalState not
     | SubtreeMsg msg -> msg |> RoseTree.update hasId updateSubtree |> mapDummyRoot
-    | ContextSelectAll ->
-        mapSomeGlobalState not // TODO: Select all children of the right-clicked node
-    | ContextClearAll ->
-        mapSomeGlobalState not // TODO: Clear all children of the right-clicked node
 
   let mapOutMsg = function
     | OutRemove -> Remove
@@ -263,6 +271,9 @@ module Bindings =
     { Self: 'a
       Parent: 'a }
 
+  module Self =
+    let get m = m.Self
+
   let moveUpMsg (_, { Parent = p; Self = s }) =
     match p.Children |> List.tryHead with
     | Some c when c.Data.Id <> s.Data.Id ->
@@ -275,16 +286,22 @@ module Bindings =
         OutMoveDown |> Some
     | _ -> None
 
-  let rec subtreeBindings () : Binding<Model * SelfWithParent<RoseTree<Identifiable<Counter>>>, InOutMsg<RoseTreeMsg<Guid, SubtreeMsg>, SubtreeOutMsg>> list =
+  let rec subtreeBindings () : Binding<Model * SelfWithParent<RoseTree<Identifiable<Openable<Counter>>>>, InOutMsg<RoseTreeMsg<Guid, SubtreeMsg>, SubtreeOutMsg>> list =
     let counterBindings =
       Counter.bindings ()
-      |> Bindings.mapModel (fun (_, { Self = s }) -> s.Data.Value)
+      |> Bindings.mapModel (fun (_, { Self = s }) -> s.Data |> Identifiable.get |> Openable.Value.get)
       |> Bindings.mapMsg (CounterMsg >> LeafMsg)
 
     let inMsgBindings =
       [ "CounterIdText" |> Binding.oneWay(fun (_, { Self = s }) -> s.Data.Id)
         "AddChild" |> Binding.cmd(AddChild |> LeafMsg)
         "GlobalState" |> Binding.oneWay(fun (m, _) -> m.SomeGlobalState)
+        "ContextMenuIsOpen"
+          |> Binding.TwoWay.id
+          |> Binding.mapModel (snd >> Self.get >> RoseTree.getData >> Identifiable.get >> Openable.IsOpen.get)
+          |> Binding.mapMsg (SetContextMenuIsOpen >> LeafMsg)
+        "SelectChildren" |> Binding.cmd (snd >> Self.get >> RoseTree.getData >> Identifiable.getId >> SelectChildren >> LeafMsg)
+        "DeselectChildren" |> Binding.cmd (snd >> Self.get >> RoseTree.getData >> Identifiable.getId >> DeselectChildren >> LeafMsg)
         "ChildCounters"
           |> Binding.subModelSeq (subtreeBindings, (fun (_, { Self = c }) -> c.Data.Id))
           |> Binding.mapModel (fun (m, { Self = p }) -> p.Children |> Seq.map (fun c -> m, { Self = c; Parent = p }))
@@ -292,7 +309,6 @@ module Bindings =
             match inOutMsg with
             | InMsg msg -> (cId, msg) |> BranchMsg
             | OutMsg msg -> cId |> mapOutMsg msg |> LeafMsg)
-        "RightClick" |> Binding.cmd(fun (_, ({ Self = c })) -> showContextMenu c)
       ] @ counterBindings
       |> Bindings.mapMsg InMsg
 
@@ -318,16 +334,12 @@ module Bindings =
     "ToggleGlobalState" |> Binding.cmd ToggleGlobalState
 
     "AddCounter" |> Binding.cmd (AddChild |> LeafMsg |> SubtreeMsg)
-
-    "ContextSelectAll" |> Binding.cmd ContextSelectAll
-    "ContextClearAll" |> Binding.cmd ContextClearAll
   ]
 
 let counterDesignVm = ViewModel.designInstance Counter.init (Counter.bindings ())
 let mainDesignVm = ViewModel.designInstance (App.init ()) (Bindings.rootBindings ())
 
 let main window =
-  App.window <- window
   let logger =
     LoggerConfiguration()
       .MinimumLevel.Override("Elmish.WPF.Update", Events.LogEventLevel.Verbose)

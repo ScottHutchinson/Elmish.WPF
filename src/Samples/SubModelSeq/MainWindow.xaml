@@ -3,7 +3,6 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:i="http://schemas.microsoft.com/xaml/behaviors"
     xmlns:local="clr-namespace:Elmish.WPF.Samples.SubModelSeq"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="clr-namespace:Elmish.WPF.Samples.SubModelSeq;assembly=SubModelSeq.Core"
@@ -13,19 +12,7 @@
     d:DataContext="{x:Static vm:Program.mainDesignVm}"
     WindowStartupLocation="CenterScreen"
     mc:Ignorable="d">
-    <Window.Resources>
-        <ContextMenu x:Key="contextMenu">
-            <MenuItem
-                x:Name="contextSelectAll"
-                Command="{Binding ContextSelectAll}"
-                Header="Select All" />
-            <MenuItem
-                x:Name="contextClearAll"
-                Command="{Binding ContextClearAll}"
-                Header="Clear All" />
-        </ContextMenu>
-    </Window.Resources>
-    <Grid Margin="0,20,0,10">
+  <Grid Margin="0,20,0,10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -54,11 +41,6 @@
             <TreeView.ItemTemplate>
                 <HierarchicalDataTemplate ItemsSource="{Binding ChildCounters}">
                     <StackPanel Orientation="Horizontal">
-                        <i:Interaction.Triggers>
-                            <i:EventTrigger EventName="MouseRightButtonUp">
-                                <i:InvokeCommandAction Command="{Binding RightClick}" />
-                            </i:EventTrigger>
-                        </i:Interaction.Triggers>
                         <TextBlock
                             Width="250"
                             Margin="10,5,10,5"
@@ -84,6 +66,12 @@
                             Command="{Binding MoveDown}"
                             Content="↓" />
                         <TextBlock Margin="10,5,10,5" Text="{Binding GlobalState, StringFormat='Global state: {0}'}" />
+                        <StackPanel.ContextMenu>
+                            <ContextMenu IsOpen="{Binding ContextMenuIsOpen}">
+                                <MenuItem Header="Select All" Command="{Binding SelectChildren}" />
+                                <MenuItem Header="Clear All" Command="{Binding DeselectChildren}" />
+                            </ContextMenu>
+                        </StackPanel.ContextMenu>
                     </StackPanel>
                 </HierarchicalDataTemplate>
             </TreeView.ItemTemplate>
