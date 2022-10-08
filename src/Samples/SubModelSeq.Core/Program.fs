@@ -239,14 +239,37 @@ module App =
     |> FuncOption.bind swap
     |> FuncOption.inputIfNone
 
+  let rec traverse (projection: RoseTree<Identifiable<Openable<Counter>>> -> RoseTree<Identifiable<Openable<Counter>>>) parent =
+      let children =
+          parent.Children
+          |> List.map (fun f -> 
+              projection f
+              |> traverse projection
+          )
+      { parent with Children = children }
+
+  let setCounterForAll isSelected parent =
+      let msg = if isSelected then Increment else Decrement
+      let setCounter (parent: RoseTree<Identifiable<Openable<Counter>>>) =
+        let counter = parent.Data.Value.Value |> Counter.update msg
+        { parent with Data = { parent.Data with Value = { parent.Data.Value with Value = counter }}}
+      let dummyRoot = traverse setCounter parent // set counter for all children recursively
+      dummyRoot |> setCounter // set counter for the parent
+
+  let selectAll = setCounterForAll true
+
+  let clearAll = setCounterForAll false
+
   let updateSubtree = function
     | CounterMsg msg -> msg |> Counter.update |> Openable.Value.map |> Identifiable.map |> RoseTree.mapData
     | AddChild -> createNewLeaf () |> List.cons |> RoseTree.mapChildren
     | Remove cId -> cId |> hasId >> not |> List.filter |> RoseTree.mapChildren
     | MoveUp cId -> cId |> swapCounters List.swapWithPrev |> RoseTree.mapChildren
     | MoveDown cId -> cId |> swapCounters List.swapWithNext |> RoseTree.mapChildren
-    | SelectChildren cId -> fun m -> m   // A breakpoint on m is hit when "Select All" is clicked in a context menu
-    | DeselectChildren cId -> fun m -> m // A breakpoint on m is hit when "Clear All" is clicked in a context menu
+    | SelectChildren cId -> fun m ->
+        selectAll m
+    | DeselectChildren cId -> fun m ->
+        clearAll m
     | SetContextMenuIsOpen b -> fun m ->
         if not b || not m.Children.IsEmpty then
           b |> Openable.IsOpen.set |> Identifiable.map |> RoseTree.mapData <| m

@@ -67,7 +67,7 @@
                             Content="↓" />
                         <TextBlock Margin="10,5,10,5" Text="{Binding GlobalState, StringFormat='Global state: {0}'}" />
                         <StackPanel.ContextMenu>
-                            <ContextMenu IsOpen="{Binding ContextMenuIsOpen}">
+              <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}" IsOpen="{Binding ContextMenuIsOpen}">
                                 <MenuItem Header="Select All" Command="{Binding SelectChildren}" />
                                 <MenuItem Header="Clear All" Command="{Binding DeselectChildren}" />
                             </ContextMenu>
